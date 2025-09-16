@@ -12,9 +12,33 @@ pub enum Op {
     Add,
     Sub,
     Mov,
+    MovI, // move immediate (sign/zero/high are handled in decode)
+    MovHA, // MOVH.A (address high move)
+    Lea,   // Load effective address into A
+    And,
+    Or,
+    Xor,
     LdW,
     StW,
+    LdB,
+    LdBu,
+    LdH,
+    LdHu,
+    StB,
+    StH,
     J,
+    Jeq,
+    Jne,
+    JeqImm,
+    JneImm,
+    Jge,
+    JgeU,
+    JgeImm,
+    JgeUImm,
+    Jlt,
+    JltU,
+    JltImm,
+    JltUImm,
     Bne,
     Syscall,
 }
@@ -27,6 +51,7 @@ pub struct Decoded {
     pub rs1: u8,
     pub rs2: u8,
     pub imm: u32,
+    pub imm2: u32, // optional second immediate (e.g., BRC const)
 }
 
 pub trait Decoder {
