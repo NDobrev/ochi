@@ -52,6 +52,10 @@ pub struct Decoded {
     pub rs2: u8,
     pub imm: u32,
     pub imm2: u32, // optional second immediate (e.g., BRC const)
+    // Addressing mode helpers
+    pub abs: bool, // when true, `imm` is an absolute EA (no base)
+    pub wb: bool,  // write-back to A[rs1]
+    pub pre: bool, // true for pre-increment, false for post-increment when wb=true
 }
 
 pub trait Decoder {

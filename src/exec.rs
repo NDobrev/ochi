@@ -20,8 +20,12 @@ impl Executor for IntExecutor {
                 cpu.a[d.rd as usize] = d.imm;
             }
             Op::Lea => {
-                let base = cpu.a[d.rs1 as usize];
-                cpu.a[d.rd as usize] = base.wrapping_add(d.imm);
+                if d.abs {
+                    cpu.a[d.rd as usize] = d.imm;
+                } else {
+                    let base = cpu.a[d.rs1 as usize];
+                    cpu.a[d.rd as usize] = base.wrapping_add(d.imm);
+                }
             }
             Op::Add => {
                 let a = cpu.gpr[d.rs1 as usize];
@@ -63,17 +67,28 @@ impl Executor for IntExecutor {
             }
             Op::Sub => {
                 let a = cpu.gpr[d.rs1 as usize];
-                let b = cpu.gpr[d.rs2 as usize];
-                let (res, borrow) = a.overflowing_sub(b);
+                let (res, borrow) = if d.rs2 != 0 {
+                    let b = cpu.gpr[d.rs2 as usize];
+                    a.overflowing_sub(b)
+                } else {
+                    // RSUB immediate form: imm - a
+                    let (r, b) = (d.imm).overflowing_sub(a);
+                    (r, b)
+                };
                 cpu.gpr[d.rd as usize] = res;
                 cpu.psw.set(Psw::Z, res == 0);
                 cpu.psw.set(Psw::N, (res as i32) < 0);
                 cpu.psw.set(Psw::C, borrow); // check exact meaning vs TriCore
             }
             Op::LdW => {
-                // Base from address register bank
                 let base = cpu.a[d.rs1 as usize];
-                let addr = base.wrapping_add(d.imm);
+                let addr = if d.abs {
+                    d.imm
+                } else if d.wb {
+                    if d.pre { base.wrapping_add(d.imm) } else { base }
+                } else {
+                    base.wrapping_add(d.imm)
+                };
                 if addr % 4 != 0 {
                     return Err(Trap::Unaligned { addr });
                 }
@@ -81,11 +96,20 @@ impl Executor for IntExecutor {
                     .read_u32(addr)
                     .map_err(|source| Trap::Bus { addr, source })?;
                 cpu.gpr[d.rd as usize] = val;
+                if !d.abs && d.wb {
+                    let new_base = if d.pre { addr } else { addr.wrapping_add(d.imm) };
+                    cpu.a[d.rs1 as usize] = new_base;
+                }
             }
             Op::StW => {
-                // Base from address register bank
                 let base = cpu.a[d.rs1 as usize];
-                let addr = base.wrapping_add(d.imm);
+                let addr = if d.abs {
+                    d.imm
+                } else if d.wb {
+                    if d.pre { base.wrapping_add(d.imm) } else { base }
+                } else {
+                    base.wrapping_add(d.imm)
+                };
                 if addr % 4 != 0 {
                     return Err(Trap::Unaligned { addr });
                 }
@@ -93,26 +117,38 @@ impl Executor for IntExecutor {
                 bus
                     .write_u32(addr, val)
                     .map_err(|source| Trap::Bus { addr, source })?;
+                if !d.abs && d.wb {
+                    let new_base = if d.pre { addr } else { addr.wrapping_add(d.imm) };
+                    cpu.a[d.rs1 as usize] = new_base;
+                }
             }
             Op::LdB => {
                 let base = cpu.a[d.rs1 as usize];
-                let addr = base.wrapping_add(d.imm);
+                let addr = if d.abs { d.imm } else if d.wb { if d.pre { base.wrapping_add(d.imm) } else { base } } else { base.wrapping_add(d.imm) };
                 let v = bus
                     .read_u8(addr)
                     .map_err(|source| Trap::Bus { addr, source })? as i8 as i32 as u32;
                 cpu.gpr[d.rd as usize] = v;
+                if !d.abs && d.wb {
+                    let new_base = if d.pre { addr } else { addr.wrapping_add(d.imm) };
+                    cpu.a[d.rs1 as usize] = new_base;
+                }
             }
             Op::LdBu => {
                 let base = cpu.a[d.rs1 as usize];
-                let addr = base.wrapping_add(d.imm);
+                let addr = if d.abs { d.imm } else if d.wb { if d.pre { base.wrapping_add(d.imm) } else { base } } else { base.wrapping_add(d.imm) };
                 let v = bus
                     .read_u8(addr)
                     .map_err(|source| Trap::Bus { addr, source })? as u32;
                 cpu.gpr[d.rd as usize] = v;
+                if !d.abs && d.wb {
+                    let new_base = if d.pre { addr } else { addr.wrapping_add(d.imm) };
+                    cpu.a[d.rs1 as usize] = new_base;
+                }
             }
             Op::LdH => {
                 let base = cpu.a[d.rs1 as usize];
-                let addr = base.wrapping_add(d.imm);
+                let addr = if d.abs { d.imm } else if d.wb { if d.pre { base.wrapping_add(d.imm) } else { base } } else { base.wrapping_add(d.imm) };
                 if addr % 2 != 0 {
                     return Err(Trap::Unaligned { addr });
                 }
@@ -120,10 +156,14 @@ impl Executor for IntExecutor {
                     .read_u16(addr)
                     .map_err(|source| Trap::Bus { addr, source })? as i16 as i32 as u32;
                 cpu.gpr[d.rd as usize] = v;
+                if !d.abs && d.wb {
+                    let new_base = if d.pre { addr } else { addr.wrapping_add(d.imm) };
+                    cpu.a[d.rs1 as usize] = new_base;
+                }
             }
             Op::LdHu => {
                 let base = cpu.a[d.rs1 as usize];
-                let addr = base.wrapping_add(d.imm);
+                let addr = if d.abs { d.imm } else if d.wb { if d.pre { base.wrapping_add(d.imm) } else { base } } else { base.wrapping_add(d.imm) };
                 if addr % 2 != 0 {
                     return Err(Trap::Unaligned { addr });
                 }
@@ -131,18 +171,26 @@ impl Executor for IntExecutor {
                     .read_u16(addr)
                     .map_err(|source| Trap::Bus { addr, source })? as u32;
                 cpu.gpr[d.rd as usize] = v;
+                if !d.abs && d.wb {
+                    let new_base = if d.pre { addr } else { addr.wrapping_add(d.imm) };
+                    cpu.a[d.rs1 as usize] = new_base;
+                }
             }
             Op::StB => {
                 let base = cpu.a[d.rs1 as usize];
-                let addr = base.wrapping_add(d.imm);
+                let addr = if d.abs { d.imm } else if d.wb && d.pre { base.wrapping_add(d.imm) } else { base };
                 let val = (cpu.gpr[d.rs2 as usize] & 0xFF) as u8;
                 bus
                     .write_u8(addr, val)
                     .map_err(|source| Trap::Bus { addr, source })?;
+                if !d.abs && d.wb {
+                    let new_base = if d.pre { addr } else { addr.wrapping_add(d.imm) };
+                    cpu.a[d.rs1 as usize] = new_base;
+                }
             }
             Op::StH => {
                 let base = cpu.a[d.rs1 as usize];
-                let addr = base.wrapping_add(d.imm);
+                let addr = if d.abs { d.imm } else if d.wb && d.pre { base.wrapping_add(d.imm) } else { base };
                 if addr % 2 != 0 {
                     return Err(Trap::Unaligned { addr });
                 }
@@ -150,6 +198,10 @@ impl Executor for IntExecutor {
                 bus
                     .write_u16(addr, val)
                     .map_err(|source| Trap::Bus { addr, source })?;
+                if !d.abs && d.wb {
+                    let new_base = if d.pre { addr } else { addr.wrapping_add(d.imm) };
+                    cpu.a[d.rs1 as usize] = new_base;
+                }
             }
             Op::J => {
                 // pc was already advanced by fetch; apply pc-relative offset in bytes

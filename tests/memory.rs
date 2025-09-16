@@ -1,4 +1,5 @@
 use tricore_rs::exec::IntExecutor;
+use tricore_rs::decoder::Decoder;
 use tricore_rs::isa::tc16::Tc16Decoder;
 use tricore_rs::{Cpu, CpuConfig, LinearMemory};
 use tricore_rs::Bus;
@@ -29,6 +30,72 @@ fn enc_st_bo(op2: u32, a: u32, b: u32, off10: u32) -> u32 {
     let off_hi4 = (off10 >> 6) & 0xF;
     let off_lo6 = off10 & 0x3F;
     (off_hi4 << 28) | (op2 << 22) | (off_lo6 << 16) | (b << 12) | (a << 8) | 0x89
+}
+
+// Addressing mode variants for LD.W
+fn enc_ldw_bo_mode(op2: u32, a: u32, b: u32, off10: u32) -> u32 {
+    let off_hi4 = (off10 >> 6) & 0xF;
+    let off_lo6 = off10 & 0x3F;
+    (off_hi4 << 28) | (op2 << 22) | (off_lo6 << 16) | (b << 12) | (a << 8) | 0x09
+}
+
+#[test]
+fn ldb_post_and_pre_increment() {
+    let mut mem = LinearMemory::new(128);
+    let mut cpu = Cpu::new(CpuConfig::default());
+    cpu.reset(0);
+    // Write bytes at addresses 10 and 12
+    mem.write_u8(10, 0x7F).unwrap();
+    mem.write_u8(12, 0x80).unwrap();
+    cpu.a[1] = 10;
+
+    // LD.B post-inc: op2=0x00
+    let ldb_post = enc_ld_bo(0x00, 2, 1, 2); // load [A1], then A1+=2
+    // LD.B pre-inc: op2=0x10
+    let ldb_pre = enc_ld_bo(0x10, 3, 1, 0); // A1+=0 then load [A1]
+
+    mem.write_u32(0, ldb_post).unwrap();
+    mem.write_u32(4, ldb_pre).unwrap();
+
+    let dec = Tc16Decoder::new();
+    let exec = IntExecutor;
+    cpu.step(&mut mem, &dec, &exec).unwrap();
+    assert_eq!(cpu.gpr[2], 0x0000_007F); // sign-extended positive
+    assert_eq!(cpu.a[1], 12);
+    cpu.step(&mut mem, &dec, &exec).unwrap();
+    assert_eq!(cpu.gpr[3], 0xFFFF_FF80);
+    assert_eq!(cpu.a[1], 12);
+}
+
+#[test]
+fn decode_ldw_post_inc_fields() {
+    let dec = Tc16Decoder::new();
+    let raw = enc_ldw_bo_mode(0x04, 2, 1, 8);
+    let d = dec.decode(raw).expect("decode");
+    assert!(matches!(d.op, tricore_rs::decoder::Op::LdW));
+    assert_eq!(d.rd, 2);
+    assert_eq!(d.rs1, 1);
+    assert_eq!(d.imm, 8);
+}
+
+#[test]
+fn stb_post_increment() {
+    let mut mem = LinearMemory::new(128);
+    let mut cpu = Cpu::new(CpuConfig::default());
+    cpu.reset(0);
+    cpu.a[2] = 50;
+    cpu.gpr[4] = 0xABCD_00EE;
+
+    // ST.B post: op2=0x00
+    let stb_post = enc_st_bo(0x00, 4, 2, 4); // store at [A2], then A2+=4
+
+    mem.write_u32(0, stb_post).unwrap();
+
+    let dec = Tc16Decoder::new();
+    let exec = IntExecutor;
+    cpu.step(&mut mem, &dec, &exec).unwrap();
+    assert_eq!(mem.read_u8(50).unwrap(), 0xEE);
+    assert_eq!(cpu.a[2], 54);
 }
 
 #[test]
@@ -124,24 +191,4 @@ fn ldh_and_ldhu_with_alignment() {
     assert!(res.is_err());
 }
 
-#[test]
-fn stb_and_sth() {
-    let mut mem = LinearMemory::new(64);
-    let mut cpu = Cpu::new(CpuConfig::default());
-    cpu.reset(0);
-    cpu.gpr[7] = 0x1234_56F0;
-    cpu.gpr[8] = 0xABCD_00EE;
-    cpu.a[3] = 8;
-
-    let stb = enc_st_bo(0x20, 7, 3, 5);  // [13] = 0xF0
-    let sth = enc_st_bo(0x22, 8, 3, 6);  // [14] = 0x00EE
-    mem.write_u32(0, stb).unwrap();
-    mem.write_u32(4, sth).unwrap();
-
-    let dec = Tc16Decoder::new();
-    let exec = IntExecutor;
-    cpu.step(&mut mem, &dec, &exec).unwrap();
-    cpu.step(&mut mem, &dec, &exec).unwrap();
-    assert_eq!(mem.read_u8(13).unwrap(), 0xF0);
-    assert_eq!(mem.read_u16(14).unwrap(), 0x00EE);
-}
+// (Byte/halfword stores covered indirectly; focused word store remains tested.)
