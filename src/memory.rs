@@ -47,24 +47,36 @@ impl LinearMemory {
 
 impl Bus for LinearMemory {
     fn read_u8(&mut self, addr: u32) -> Result<u8> {
-        Ok(self.mem[addr as usize])
+        let off = addr.wrapping_sub(self.base) as usize;
+        anyhow::ensure!(off < self.mem.len(), "read_u8 OOB at {addr:#x} (base {:#x})", self.base);
+        Ok(self.mem[off])
     }
     fn read_u16(&mut self, addr: u32) -> Result<u16> {
-        Ok(self.load_le_u16(addr as usize))
+        let off = addr.wrapping_sub(self.base) as usize;
+        anyhow::ensure!(off + 1 < self.mem.len(), "read_u16 OOB at {addr:#x} (base {:#x})", self.base);
+        Ok(self.load_le_u16(off))
     }
     fn read_u32(&mut self, addr: u32) -> Result<u32> {
-        Ok(self.load_le_u32(addr as usize))
+        let off = addr.wrapping_sub(self.base) as usize;
+        anyhow::ensure!(off + 3 < self.mem.len(), "read_u32 OOB at {addr:#x} (base {:#x})", self.base);
+        Ok(self.load_le_u32(off))
     }
     fn write_u8(&mut self, addr: u32, val: u8) -> Result<()> {
-        self.mem[addr as usize] = val;
+        let off = addr.wrapping_sub(self.base) as usize;
+        anyhow::ensure!(off < self.mem.len(), "write_u8 OOB at {addr:#x} (base {:#x})", self.base);
+        self.mem[off] = val;
         Ok(())
     }
     fn write_u16(&mut self, addr: u32, val: u16) -> Result<()> {
-        self.store_le_u16(addr as usize, val);
+        let off = addr.wrapping_sub(self.base) as usize;
+        anyhow::ensure!(off + 1 < self.mem.len(), "write_u16 OOB at {addr:#x} (base {:#x})", self.base);
+        self.store_le_u16(off, val);
         Ok(())
     }
     fn write_u32(&mut self, addr: u32, val: u32) -> Result<()> {
-        self.store_le_u32(addr as usize, val);
+        let off = addr.wrapping_sub(self.base) as usize;
+        anyhow::ensure!(off + 3 < self.mem.len(), "write_u32 OOB at {addr:#x} (base {:#x})", self.base);
+        self.store_le_u32(off, val);
         Ok(())
     }
 }
