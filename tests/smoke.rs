@@ -1,6 +1,7 @@
 use tricore_rs::exec::IntExecutor;
 use tricore_rs::isa::tc16::Tc16Decoder;
 use tricore_rs::{Cpu, CpuConfig, LinearMemory};
+use tricore_rs::Bus; // bring trait into scope for write_u32/read_u32
 
 #[test]
 fn add_immediate_placeholder() {

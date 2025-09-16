@@ -1,4 +1,5 @@
-use crate::decoder::{Decoded, Decoder};
+use anyhow::Error;
+use crate::decoder::Decoder;
 use crate::exec::Executor;
 use crate::memory::Bus;
 use bitflags::bitflags;
@@ -31,7 +32,7 @@ pub struct Cpu {
 }
 
 bitflags! {
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Psw: u32 {
 const C = 1 << 0; // Carry
 const V = 1 << 1; // Overflow
@@ -48,8 +49,8 @@ pub enum Trap {
     InvalidInstruction { pc: u32 },
     #[error("Unaligned access at {addr:#010x}")]
     Unaligned { addr: u32 },
-    #[error("Bus error at {addr:#010x}")]
-    Bus { addr: u32 },
+    #[error("Bus error at {addr:#010x}: {source}")]
+    Bus { addr: u32, #[source] source: Error },
     #[error("Breakpoint")]
     Break,
 }
@@ -77,7 +78,9 @@ impl Cpu {
     ) -> Result<(), Trap> {
         let pc = self.pc;
         // TriCore supports 16-bit and 32-bit encodings; fetch 32 then let decoder decide width
-        let raw32 = bus.read_u32(pc)?;
+        let raw32 = bus
+            .read_u32(pc)
+            .map_err(|source| Trap::Bus { addr: pc, source })?;
         let d = dec.decode(raw32).ok_or(Trap::InvalidInstruction { pc })?;
         // Advance PC by decoded width (2 or 4)
         self.pc = pc.wrapping_add(d.width as u32);

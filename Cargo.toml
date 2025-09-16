@@ -10,7 +10,7 @@ repository = "https://example.com/your/repo"
 
 [dependencies]
 thiserror = "1"
-bitflags = "2"
+bitflags = { version = "2", features = ["serde"] }
 bitvec = "1"
 num-traits = "0.2"
 clap = { version = "4", features = ["derive"] }

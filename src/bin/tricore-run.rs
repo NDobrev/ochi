@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use tricore_rs::{exec::IntExecutor, isa::tc16::Tc16Decoder, Bus, Cpu, CpuConfig, LinearMemory};
+use tricore_rs::{exec::IntExecutor, isa::tc16::Tc16Decoder, Cpu, CpuConfig, LinearMemory};
 
 #[derive(Parser, Debug)]
 #[command(

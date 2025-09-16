@@ -42,7 +42,9 @@ impl Executor for IntExecutor {
                 if addr % 4 != 0 {
                     return Err(Trap::Unaligned { addr });
                 }
-                let val = bus.read_u32(addr)?;
+                let val = bus
+                    .read_u32(addr)
+                    .map_err(|source| Trap::Bus { addr, source })?;
                 cpu.gpr[d.rd as usize] = val;
             }
             Op::StW => {
@@ -52,7 +54,9 @@ impl Executor for IntExecutor {
                     return Err(Trap::Unaligned { addr });
                 }
                 let val = cpu.gpr[d.rs2 as usize];
-                bus.write_u32(addr, val)?;
+                bus
+                    .write_u32(addr, val)
+                    .map_err(|source| Trap::Bus { addr, source })?;
             }
             Op::J => {
                 // pc was already advanced by fetch; apply pc-relative offset (sign-extend as needed)
