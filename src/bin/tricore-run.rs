@@ -3,6 +3,9 @@ use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
 use tricore_rs::{exec::IntExecutor, isa::tc16::Tc16Decoder, Cpu, CpuConfig, LinearMemory};
+use tricore_rs::Bus;
+use tricore_rs::disasm::fmt_decoded;
+use tricore_rs::decoder::Decoder;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -19,6 +22,8 @@ struct Opts {
     skip: usize,
     #[arg(value_name = "BINFILE")]
     input: String,
+    #[arg(long, help = "Disassemble N instructions and exit")] 
+    disasm: Option<usize>,
 }
 
 fn main() -> Result<()> {
@@ -41,11 +46,26 @@ fn main() -> Result<()> {
     let dec = Tc16Decoder::new();
     let exec = IntExecutor;
 
-    // Simple run loop with step cap
-    for _ in 0..10_000_000u64 {
-        if let Err(trap) = cpu.step(&mut mem, &dec, &exec) {
-            eprintln!("TRAP: {trap:?}");
-            break;
+    if let Some(count) = opts.disasm {
+        let mut pc = entry;
+        for _ in 0..count {
+            let raw32 = mem.read_u32(pc)?;
+            if let Some(d) = dec.decode(raw32) {
+                println!("{pc:#010x}: {}", fmt_decoded(&d));
+                pc = pc.wrapping_add(d.width as u32);
+            } else {
+                println!("{pc:#010x}: .word {raw32:#010x}");
+                pc = pc.wrapping_add(4);
+            }
+        }
+        return Ok(());
+    } else {
+        // Simple run loop with step cap
+        for _ in 0..10_000_000u64 {
+            if let Err(trap) = cpu.step(&mut mem, &dec, &exec) {
+                eprintln!("TRAP: {trap:?}");
+                break;
+            }
         }
     }
 

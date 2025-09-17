@@ -39,6 +39,9 @@ const V = 1 << 1; // Overflow
 const Z = 1 << 2; // Zero
 const N = 1 << 3; // Negative
 const E = 1 << 4; // Endianness (example)
+const SV = 1 << 5; // Sticky Overflow
+const AV = 1 << 6; // Advanced Overflow
+const SAV = 1 << 7; // Sticky Advanced Overflow
 // ... extend with real PSW fields
 }
 }

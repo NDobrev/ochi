@@ -38,14 +38,14 @@ The table below summarizes what is implemented in the decoder/executor and what 
 | --- | --- | --- |
 | Fetch/step | 16/32‑bit fetch, PC advance by width | Delayed slots, exceptions beyond Unaligned/Invalid/Bus |
 | PSW | Bitflags with Z/N/C updates for some ALU ops | Full V/SV/AV/SAV semantics, carry/overflow accuracy per spec |
-| Arithmetic | ADD (RR/RC/SRC/SRR), ADDI (RLC), ADDIH (RLC), SUB (RR), RSUB (RC) | ADDC/ADDX, saturation variants beyond tests |
+| Arithmetic | ADD (RR/RC/SRC/SRR), ADDI (RLC), ADDIH (RLC), SUB (RR), RSUB (RC), ADDC/ADDX | Saturation variants beyond tests |
 | Logical | AND/OR/XOR: RR (op1=0x0F), RC (op1=0x8F), 16‑bit SRR (0x26/0xA6/0xC6) | NAND/NOR/XNOR, ANDN/ORN, bit test ops |
 | Moves (data) | MOV (RLC sign‑ext 0x3B; RR via 0x0B/op2=0x1F; 16‑bit SRC 0x82), MOV.U (0xBB), MOVH (0x7B) | MOV variants for E‑register pairs, extended forms |
 | Address ops | MOVH.A (0x91), ADDIH.A (0x11), LEA BO (0x49/op2=0x28), LEA BOL (0xD9), LEA ABS (0xC5) | — |
-| Loads (BO/ABS) | BO: LD.B/BU/H/HU/W base+off; post/pre‑inc for B/H/W. ABS: LD.B/BU/H/HU/W | BOL memory variants, circular/bit‑reverse forms |
-| Stores (BO/ABS) | BO: ST.B/H/W base+off; post/pre‑inc for B/H/W. ABS: ST.B/H/W | BOL memory variants, circular/bit‑reverse forms |
+| Loads (BO/ABS) | BO: LD.B/BU/H/HU/W base+off; post/pre‑inc for B/H/W. ABS: LD.B/BU/H/HU/W. P[b]: bit‑reverse and circular for B/BU/H/HU/W | BOL variants beyond LD.W |
+| Stores (BO/ABS) | BO: ST.B/H/W base+off; post/pre‑inc for B/H/W. ABS: ST.B/H/W. P[b]: bit‑reverse and circular for B/W | BOL variants beyond ST.B; P[b] halfword stores |
 | Branch (uncond.) | J disp8 (0x3C), J disp24 (0x1D) | JA/JL/JLA/CALL/RET/RFE families |
-| Branch (cond., data regs) | JEQ/JNE BRR (0x5F); JGE/JGE.U BRR (0x7F); JLT/JLT.U BRR (0x3F) | Other conditions (JLE/JGT) and address‑register compares (JEQ.A/JNE.A) |
+| Branch (cond., data regs) | JEQ/JNE BRR (0x5F); JGE/JGE.U BRR (0x7F); JLT/JLT.U BRR (0x3F); JEQ.A/JNE.A (0x7D) | Other conditions (JLE/JGT) |
 | Branch (cond., imm4) | JEQ/JNE BRC (0xDF), JGE/JGE.U BRC (0xFF), JLT/JLT.U BRC (0xBF) | Wider immediates, compound forms |
 | 16‑bit branch (D15) | JEQ/JNE SBR/SBC forms (0x3E/0xBE, 0x7E/0xFE, 0x1E/0x9E, 0x5E/0xDE) | Other 16‑bit conditional families |
 | System | Trap mapping from bus errors; Break trap | Full SYSCALL/exception model, context stack, interrupts |
@@ -72,9 +72,9 @@ Current tests include:
 ## Contributing / next steps
 
 High‑value next steps:
-- Compare families beyond EQ/NE/GE/LT (e.g., JLE/JGT) and address‑register compares (JEQ.A/JNE.A)
-- Memory: BOL (long‑offset) load/store variants; circular/bit‑reverse addressing
-- Saturating arithmetic flag behavior exactly per spec (V/SV/AV); ADDC/ADDX
+- Compare families beyond EQ/NE/GE/LT (e.g., JLE/JGT)
+- Memory: more BOL (long‑offset) load/store variants; P[b] halfword stores
+- Saturating arithmetic flag behavior exactly per spec (V/SV/AV)
 - Disassembly helpers and richer examples
 
 PRs and issue reports are welcome.

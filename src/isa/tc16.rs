@@ -170,6 +170,20 @@ impl Decoder for Tc16Decoder {
                         pre: false,
                     });
                 }
+                0xBC => {
+                    // JZ.A A[b], disp4 (SBR)
+                    let b = ((raw16 >> 12) & 0xF) as u8;
+                    let disp4 = ((raw16 >> 8) & 0xF) as u32;
+                    let off = (disp4 << 1) as u32; // zero-extended
+                    return Some(Decoded { op: Op::JzA, width: 2, rd: 0, rs1: b, rs2: 0, imm: off, imm2: 0, abs: false, wb: false, pre: false });
+                }
+                0x7C => {
+                    // JNZ.A A[b], disp4 (SBR)
+                    let b = ((raw16 >> 12) & 0xF) as u8;
+                    let disp4 = ((raw16 >> 8) & 0xF) as u32;
+                    let off = (disp4 << 1) as u32; // zero-extended
+                    return Some(Decoded { op: Op::JnzA, width: 2, rd: 0, rs1: b, rs2: 0, imm: off, imm2: 0, abs: false, wb: false, pre: false });
+                }
                 _ => return None,
             }
         }
@@ -213,6 +227,20 @@ impl Decoder for Tc16Decoder {
                         let b = ((raw32 >> 16) & 0xF) as u8;
                         let a = ((raw32 >> 8) & 0xF) as u8;
                         Some(Decoded { op: Op::Sub, width: 4, rd: c, rs1: a, rs2: b, imm: 0, imm2: 0, abs: false, wb: false, pre: false })
+                    }
+                    0x04 => {
+                        // ADDX RR
+                        let c = ((raw32 >> 28) & 0xF) as u8;
+                        let b = ((raw32 >> 16) & 0xF) as u8;
+                        let a = ((raw32 >> 8) & 0xF) as u8;
+                        Some(Decoded { op: Op::Addx, width: 4, rd: c, rs1: a, rs2: b, imm: 0, imm2: 0, abs: false, wb: false, pre: false })
+                    }
+                    0x05 => {
+                        // ADDC RR
+                        let c = ((raw32 >> 28) & 0xF) as u8;
+                        let b = ((raw32 >> 16) & 0xF) as u8;
+                        let a = ((raw32 >> 8) & 0xF) as u8;
+                        Some(Decoded { op: Op::Addc, width: 4, rd: c, rs1: a, rs2: b, imm: 0, imm2: 0, abs: false, wb: false, pre: false })
                     }
                     0x1F => {
                         // MOV D[c], D[b] (RR)
@@ -279,6 +307,8 @@ impl Decoder for Tc16Decoder {
                 let imm9 = ((raw32 >> 12) & 0x1FF) as u32;
                 match op2 {
                     0x00 => Some(Decoded { op: Op::Add, width: 4, rd: c, rs1: a, rs2: 0, imm: sign_ext(imm9, 9), imm2: 0, abs: false, wb: false, pre: false }),
+                    0x04 => Some(Decoded { op: Op::Addx, width: 4, rd: c, rs1: a, rs2: 0, imm: sign_ext(imm9, 9), imm2: 0, abs: false, wb: false, pre: false }),
+                    0x05 => Some(Decoded { op: Op::Addc, width: 4, rd: c, rs1: a, rs2: 0, imm: sign_ext(imm9, 9), imm2: 0, abs: false, wb: false, pre: false }),
                     0x08 => Some(Decoded { op: Op::Sub, width: 4, rd: c, rs1: a, rs2: 0, imm: sign_ext(imm9, 9), imm2: 0, abs: false, wb: false, pre: false }),
                     _ => None,
                 }
@@ -432,6 +462,146 @@ impl Decoder for Tc16Decoder {
                 };
                 Some(Decoded { op, width: 4, rd: a, rs1: b, rs2: 0, imm: sign_ext(off10, 10), imm2: 0, abs: false, wb, pre })
             }
+            0x19 => {
+                // LD.W D[a], A[b], off16 (BOL)
+                let off_hi4 = ((raw32 >> 28) & 0xF) as u32;      // off16[9:6]
+                let off_mid6 = ((raw32 >> 22) & 0x3F) as u32;    // off16[15:10]
+                let off_lo6 = ((raw32 >> 16) & 0x3F) as u32;     // off16[5:0]
+                let off16 = (off_mid6 << 10) | (off_hi4 << 6) | off_lo6;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                Some(Decoded { op: Op::LdW, width: 4, rd: a, rs1: b, rs2: 0, imm: sign_ext(off16, 16), imm2: 0, abs: false, wb: false, pre: false })
+            }
+            0xC9 => {
+                // LD.H D[a], A[b], off16 (BOL)
+                let off_hi4 = ((raw32 >> 28) & 0xF) as u32;
+                let off_mid6 = ((raw32 >> 22) & 0x3F) as u32;
+                let off_lo6 = ((raw32 >> 16) & 0x3F) as u32;
+                let off16 = (off_mid6 << 10) | (off_hi4 << 6) | off_lo6;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                Some(Decoded { op: Op::LdH, width: 4, rd: a, rs1: b, rs2: 0, imm: sign_ext(off16, 16), imm2: 0, abs: false, wb: false, pre: false })
+            }
+            0xB9 => {
+                // LD.HU D[a], A[b], off16 (BOL)
+                let off_hi4 = ((raw32 >> 28) & 0xF) as u32;
+                let off_mid6 = ((raw32 >> 22) & 0x3F) as u32;
+                let off_lo6 = ((raw32 >> 16) & 0x3F) as u32;
+                let off16 = (off_mid6 << 10) | (off_hi4 << 6) | off_lo6;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                Some(Decoded { op: Op::LdHu, width: 4, rd: a, rs1: b, rs2: 0, imm: sign_ext(off16, 16), imm2: 0, abs: false, wb: false, pre: false })
+            }
+            0x29 => {
+                // LD.* with P[b] (bit-reverse / circular)
+                let op2 = ((raw32 >> 22) & 0x3F) as u32;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                match op2 {
+                    // Bit-reverse
+                    0x00 => Some(Decoded { op: Op::LdBPbr, width: 4, rd: a, rs1: b, rs2: 0, imm: 0, imm2: 0, abs: false, wb: false, pre: false }),
+                    0x01 => Some(Decoded { op: Op::LdBUPbr, width: 4, rd: a, rs1: b, rs2: 0, imm: 0, imm2: 0, abs: false, wb: false, pre: false }),
+                    0x02 => Some(Decoded { op: Op::LdHPbr, width: 4, rd: a, rs1: b, rs2: 0, imm: 0, imm2: 0, abs: false, wb: false, pre: false }),
+                    0x03 => Some(Decoded { op: Op::LdHUPbr, width: 4, rd: a, rs1: b, rs2: 0, imm: 0, imm2: 0, abs: false, wb: false, pre: false }),
+                    0x04 => Some(Decoded { op: Op::LdWPbr, width: 4, rd: a, rs1: b, rs2: 0, imm: 0, imm2: 0, abs: false, wb: false, pre: false }),
+                    // Circular: off10 present in instruction
+                    0x10 | 0x11 | 0x12 | 0x13 | 0x14 => {
+                        let off_upper4 = ((raw32 >> 28) & 0xF) as u32;
+                        let off_lower6 = ((raw32 >> 16) & 0x3F) as u32;
+                        let off10 = (off_upper4 << 6) | off_lower6;
+                        let op = match op2 {
+                            0x10 => Op::LdBPcir,
+                            0x11 => Op::LdBUPcir,
+                            0x12 => Op::LdHPcir,
+                            0x13 => Op::LdHUPcir,
+                            0x14 => Op::LdWPcir,
+                            _ => unreachable!(),
+                        };
+                        Some(Decoded { op, width: 4, rd: a, rs1: b, rs2: 0, imm: sign_ext(off10, 10), imm2: 0, abs: false, wb: false, pre: false })
+                    }
+                    _ => None,
+                }
+            }
+            0x79 => {
+                // LD.B D[a], A[b], off16 (BOL)
+                let off_hi4 = ((raw32 >> 28) & 0xF) as u32;
+                let off_mid6 = ((raw32 >> 22) & 0x3F) as u32;
+                let off_lo6 = ((raw32 >> 16) & 0x3F) as u32;
+                let off16 = (off_mid6 << 10) | (off_hi4 << 6) | off_lo6;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                Some(Decoded { op: Op::LdB, width: 4, rd: a, rs1: b, rs2: 0, imm: sign_ext(off16, 16), imm2: 0, abs: false, wb: false, pre: false })
+            }
+            0xE9 => {
+                // ST.B A[b], off16, D[a] (BOL)
+                let off_hi4 = ((raw32 >> 28) & 0xF) as u32;
+                let off_mid6 = ((raw32 >> 22) & 0x3F) as u32;
+                let off_lo6 = ((raw32 >> 16) & 0x3F) as u32;
+                let off16 = (off_mid6 << 10) | (off_hi4 << 6) | off_lo6;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                Some(Decoded { op: Op::StB, width: 4, rd: 0, rs1: b, rs2: a, imm: sign_ext(off16, 16), imm2: 0, abs: false, wb: false, pre: false })
+            }
+            0xF9 => {
+                // ST.H A[b], off16, D[a] (BOL)
+                let off_hi4 = ((raw32 >> 28) & 0xF) as u32;
+                let off_mid6 = ((raw32 >> 22) & 0x3F) as u32;
+                let off_lo6 = ((raw32 >> 16) & 0x3F) as u32;
+                let off16 = (off_mid6 << 10) | (off_hi4 << 6) | off_lo6;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                Some(Decoded { op: Op::StH, width: 4, rd: 0, rs1: b, rs2: a, imm: sign_ext(off16, 16), imm2: 0, abs: false, wb: false, pre: false })
+            }
+            0x59 => {
+                // ST.W A[b], off16, D[a] (BOL)
+                let off_hi4 = ((raw32 >> 28) & 0xF) as u32;
+                let off_mid6 = ((raw32 >> 22) & 0x3F) as u32;
+                let off_lo6 = ((raw32 >> 16) & 0x3F) as u32;
+                let off16 = (off_mid6 << 10) | (off_hi4 << 6) | off_lo6;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                Some(Decoded { op: Op::StW, width: 4, rd: 0, rs1: b, rs2: a, imm: sign_ext(off16, 16), imm2: 0, abs: false, wb: false, pre: false })
+            }
+            0x39 => {
+                // LD.BU D[a], A[b], off16 (BOL)
+                let off_hi4 = ((raw32 >> 28) & 0xF) as u32;
+                let off_mid6 = ((raw32 >> 22) & 0x3F) as u32;
+                let off_lo6 = ((raw32 >> 16) & 0x3F) as u32;
+                let off16 = (off_mid6 << 10) | (off_hi4 << 6) | off_lo6;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                Some(Decoded { op: Op::LdBu, width: 4, rd: a, rs1: b, rs2: 0, imm: sign_ext(off16, 16), imm2: 0, abs: false, wb: false, pre: false })
+            }
+            0xA9 => {
+                // ST.W with P[b] (bit-reverse / circular)
+                let op2 = ((raw32 >> 22) & 0x3F) as u32;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                match op2 {
+                    0x00 => Some(Decoded { op: Op::StBPbr, width: 4, rd: 0, rs1: b, rs2: a, imm: 0, imm2: 0, abs: false, wb: false, pre: false }),
+                    0x02 => Some(Decoded { op: Op::StHPbr, width: 4, rd: 0, rs1: b, rs2: a, imm: 0, imm2: 0, abs: false, wb: false, pre: false }),
+                    0x04 => Some(Decoded { op: Op::StWPbr, width: 4, rd: 0, rs1: b, rs2: a, imm: 0, imm2: 0, abs: false, wb: false, pre: false }),
+                    0x10 => {
+                        let off_upper4 = ((raw32 >> 28) & 0xF) as u32;
+                        let off_lower6 = ((raw32 >> 16) & 0x3F) as u32;
+                        let off10 = (off_upper4 << 6) | off_lower6;
+                        Some(Decoded { op: Op::StBPcir, width: 4, rd: 0, rs1: b, rs2: a, imm: sign_ext(off10, 10), imm2: 0, abs: false, wb: false, pre: false })
+                    }
+                    0x12 => {
+                        let off_upper4 = ((raw32 >> 28) & 0xF) as u32;
+                        let off_lower6 = ((raw32 >> 16) & 0x3F) as u32;
+                        let off10 = (off_upper4 << 6) | off_lower6;
+                        Some(Decoded { op: Op::StHPcir, width: 4, rd: 0, rs1: b, rs2: a, imm: sign_ext(off10, 10), imm2: 0, abs: false, wb: false, pre: false })
+                    }
+                    0x14 => {
+                        let off_upper4 = ((raw32 >> 28) & 0xF) as u32;
+                        let off_lower6 = ((raw32 >> 16) & 0x3F) as u32;
+                        let off10 = (off_upper4 << 6) | off_lower6;
+                        Some(Decoded { op: Op::StWPcir, width: 4, rd: 0, rs1: b, rs2: a, imm: sign_ext(off10, 10), imm2: 0, abs: false, wb: false, pre: false })
+                    }
+                    _ => None,
+                }
+            }
             0x89 => {
                 // BO store family: op2 selects size and addressing mode
                 let op2 = ((raw32 >> 22) & 0x3F) as u32;
@@ -513,6 +683,25 @@ impl Decoder for Tc16Decoder {
                 let op = if unsigned { Op::JgeU } else { Op::Jge };
                 Some(Decoded { op, width: 4, rd: 0, rs1: a, rs2: b, imm: off, imm2: 0, abs: false, wb: false, pre: false })
             }
+            0x7D => {
+                // JEQ.A/JNE.A A[a], A[b], disp15 (BRR), cond in [31:30]
+                let cond = ((raw32 >> 30) & 0x3) as u8; // 00 => JEQ.A, 01 => JNE.A
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                let b = ((raw32 >> 12) & 0xF) as u8;
+                let disp15 = ((raw32 >> 15) & 0x7FFF) as u32;
+                let off = sign_ext(disp15, 15) << 1;
+                let op = match cond { 0 => Op::JeqA, 1 => Op::JneA, _ => return None };
+                Some(Decoded { op, width: 4, rd: 0, rs1: a, rs2: b, imm: off, imm2: 0, abs: false, wb: false, pre: false })
+            }
+            0xBD => {
+                // JZ.A/JNZ.A A[a], disp15 (BRR), cond in [31:30]
+                let cond = ((raw32 >> 30) & 0x3) as u8; // 00 => JZ.A, 01 => JNZ.A
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                let disp15 = ((raw32 >> 15) & 0x7FFF) as u32;
+                let off = sign_ext(disp15, 15) << 1;
+                let op = match cond { 0 => Op::JzA, 1 => Op::JnzA, _ => return None };
+                Some(Decoded { op, width: 4, rd: 0, rs1: a, rs2: 0, imm: off, imm2: 0, abs: false, wb: false, pre: false })
+            }
             0xFF => {
                 // JGE/JGE.U D[a], const4, disp15 (BRC)
                 let unsigned = ((raw32 >> 30) & 0x3) == 0x01;
@@ -545,8 +734,7 @@ impl Decoder for Tc16Decoder {
                 let imm2 = if unsigned { const4 } else { sign_ext(const4, 4) };
                 Some(Decoded { op, width: 4, rd: 0, rs1: a, rs2: 0, imm: off, imm2, abs: false, wb: false, pre: false })
             }
-            // Developer convenience
-            0xFF => Some(Decoded { op: Op::Syscall, width: 4, rd: 0, rs1: 0, rs2: 0, imm: 0, imm2: 0, abs: false, wb: false, pre: false }),
+            // Developer convenience removed to avoid shadowing real encodings
             _ => None,
         }
     }

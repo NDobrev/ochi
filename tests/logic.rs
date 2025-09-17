@@ -29,12 +29,27 @@ fn and_or_xor_rr_and_rc() {
     let rsub = (7u32<<28) | (0x08u32<<21) | ((0x10u32&0x1FF)<<12) | (1u32<<8) | 0x8B;
     mem.write_u32(24, rsub).unwrap();
 
+    // Prepare carry scenario: d1=0xFFFF_FFFF, d2=1
+    // d1 <- MOV.U 0xFFFF; ADDIH D1, D1, 0xFFFF
+    mem.write_u32(28, enc_movu(1, 0xFFFF)).unwrap();
+    mem.write_u32(32, (1u32<<28) | (0xFFFFu32<<12) | (1u32<<8) | 0x9B).unwrap();
+    // d2 <- 1
+    mem.write_u32(36, enc_movu(2, 1)).unwrap();
+    // ADDX RR: d8 = d1 + d2 => 0, PSW.C=1
+    mem.write_u32(40, (8u32<<28) | (0x04u32<<20) | (2u32<<16) | (1u32<<8) | 0x0B).unwrap();
+    // Clear d9 then ADDC RC: d9 = d0 + 0 + C => 1
+    // (d0 is 0 by reset)
+    let addc_rc = (9u32<<28) | (0x05u32<<21) | ((0u32&0x1FF)<<12) | (0u32<<8) | 0x8B;
+    mem.write_u32(44, addc_rc).unwrap();
+
     let dec = Tc16Decoder::new();
     let exec = IntExecutor;
-    for _ in 0..7 { cpu.step(&mut mem, &dec, &exec).unwrap(); }
+    for _ in 0..12 { cpu.step(&mut mem, &dec, &exec).unwrap(); }
     assert_eq!(cpu.gpr[3], 0x0000_00F0);
     assert_eq!(cpu.gpr[4], 0x0000_00FF);
     assert_eq!(cpu.gpr[5], 0x0000_F00F);
     assert_eq!(cpu.gpr[6], 0x0000_E100);
     assert_eq!(cpu.gpr[7], 0xFFFF_0F20);
+    assert_eq!(cpu.gpr[8], 0x0000_0000);
+    assert_eq!(cpu.gpr[9], 0x0000_0001);
 }

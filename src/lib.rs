@@ -1,6 +1,7 @@
 pub mod cpu;
 pub mod decoder;
 pub mod exec;
+pub mod disasm;
 pub mod instructions;
 pub mod memory;
 
