@@ -622,6 +622,12 @@ impl Executor for IntExecutor {
                     cpu.pc = cpu.pc.wrapping_add(off as u32);
                 }
             }
+            Op::Call | Op::CallA | Op::CallI => {
+                // Not implemented in this scaffold; treat as no-op for now
+            }
+            Op::Ret => {
+                // Not implemented; treat as no-op
+            }
             Op::Syscall => return Err(Trap::Break),
         }
         Ok(())

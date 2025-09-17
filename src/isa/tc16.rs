@@ -41,6 +41,12 @@ impl Decoder for Tc16Decoder {
         if is_16 {
             let raw16 = (raw32 & 0xFFFF) as u16;
             match op1 {
+                0x5C => {
+                    // CALL disp8 (SB)
+                    let disp8 = ((raw16 >> 8) & 0xFF) as u32;
+                    let off = sign_ext(disp8, 8) << 1;
+                    return Some(Decoded { op: Op::Call, width: 2, rd: 0, rs1: 0, rs2: 0, imm: off, imm2: 0, abs: false, wb: false, pre: false });
+                }
                 0x3C => {
                     // J disp8 (SB)
                     let disp8 = ((raw16 >> 8) & 0xFF) as u32;
@@ -190,6 +196,33 @@ impl Decoder for Tc16Decoder {
 
         // 32-bit encodings (op1 bit0 == 1)
         match op1 {
+            0x6D => {
+                // CALL disp24 (B)
+                let disp_low16 = ((raw32 >> 16) & 0xFFFF) as u32;
+                let disp_hi8 = ((raw32 >> 8) & 0xFF) as u32;
+                let disp24 = (disp_hi8 << 16) | disp_low16;
+                let off = sign_ext(disp24, 24) << 1;
+                return Some(Decoded { op: Op::Call, width: 4, rd: 0, rs1: 0, rs2: 0, imm: off, imm2: 0, abs: false, wb: false, pre: false });
+            }
+            0xED => {
+                // CALLA disp24 (B)
+                let disp_low16 = ((raw32 >> 16) & 0xFFFF) as u32;
+                let disp_hi8 = ((raw32 >> 8) & 0xFF) as u32;
+                let disp24 = (disp_hi8 << 16) | disp_low16;
+                let top4 = (disp24 >> 20) & 0xF;
+                let low20 = disp24 & 0xFFFFF;
+                let ea = (top4 << 28) | (low20 << 1);
+                return Some(Decoded { op: Op::CallA, width: 4, rd: 0, rs1: 0, rs2: 0, imm: ea, imm2: 0, abs: true, wb: false, pre: false });
+            }
+            0x2D => {
+                // CALLI A[a] (RR)
+                let a = ((raw32 >> 8) & 0xF) as u8;
+                return Some(Decoded { op: Op::CallI, width: 4, rd: 0, rs1: a, rs2: 0, imm: 0, imm2: 0, abs: false, wb: false, pre: false });
+            }
+            0x0D => {
+                // RET (SYS)
+                return Some(Decoded { op: Op::Ret, width: 4, rd: 0, rs1: 0, rs2: 0, imm: 0, imm2: 0, abs: false, wb: false, pre: false });
+            }
             0x1D => {
                 // J disp24 (B)
                 let disp_low16 = ((raw32 >> 16) & 0xFFFF) as u32;

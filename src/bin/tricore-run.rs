@@ -24,6 +24,8 @@ struct Opts {
     input: String,
     #[arg(long, help = "Disassemble N instructions and exit")] 
     disasm: Option<usize>,
+    #[arg(long, help = "Write final CPU state (JSON) to file")] 
+    dump_cpu: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -68,6 +70,9 @@ fn main() -> Result<()> {
             }
         }
     }
-
+    if let Some(path) = opts.dump_cpu {
+        let json = serde_json::to_string_pretty(&cpu)?;
+        std::fs::write(path, json)?;
+    }
     Ok(())
 }

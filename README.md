@@ -11,6 +11,8 @@ Ochi is a small, test-driven scaffold for a TriCore TC1.6.2 interpreter in Rust.
 - Build: `cargo build`
 - Run tests: `cargo test`
 - CLI runner: `cargo run --bin tricore-run -- --help`
+- Disassembler CLI: `cargo run -p tricore-disasm -- --help`
+- GUI (Iced): `cargo run -p tricore-disasm-gui`
 
 The `tricore-run` binary loads a raw binary into linear memory (little‑endian), sets the PC to `--entry` (default 0), and steps up to a fixed cap or until a trap. This is useful to smoke test small hand‑crafted binaries or fuzz inputs.
 
@@ -29,6 +31,8 @@ cargo run --bin tricore-run -- --entry 0 path/to/program.bin
 - `src/exec.rs` — Integer executor with ALU/memory/branch semantics
 - `tests/*.rs` — Unit/regression tests mapped to spec behaviors
 - `src/bin/tricore-run.rs` — Minimal CLI runner
+- `crates/tricore-disasm` — Disassembler + analysis CLI and utilities
+- `crates/tricore-disasm-gui` — Iced‑based GUI (MVP scaffold)
 
 ## Status matrix (implemented vs not)
 

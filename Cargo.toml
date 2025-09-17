@@ -8,6 +8,15 @@ description = "A minimal, modular TriCore interpreter scaffold in Rust"
 repository = "https://example.com/your/repo"
 
 
+[workspace]
+members = [
+    ".",
+    "crates/tricore-disasm",
+    "crates/tricore-disasm-gui",
+]
+resolver = "2"
+
+
 [dependencies]
 thiserror = "1"
 bitflags = { version = "2", features = ["serde"] }
