@@ -18,6 +18,31 @@ pub enum Op {
     And,
     Or,
     Xor,
+    Shl,
+    Shr,
+    Sar,
+    Ror,
+    Andn,
+    Not,
+    Min,
+    Max,
+    MinU,
+    MaxU,
+    Mul,
+    MulU,
+    Div,
+    DivU,
+    // Flag-based branches (use PSW)
+    BeqF,   // if Z (flag-based)
+    BneF,   // if !Z
+    BgeF,   // signed: if N==V
+    BltF,   // signed: if N!=V
+    BgeUF,  // unsigned: if C==1 (no borrow)
+    BltUF,  // unsigned: if C==0 and !Z
+    Cmp,
+    CmpU,
+    CmpI,
+    CmpUI,
     Addc,
     Addx,
     LdW,

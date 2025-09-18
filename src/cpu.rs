@@ -29,6 +29,7 @@ pub struct Cpu {
     pub gpr: [u32; 16], // Lower core GPRs (TriCore has multiple register banks; extend as needed)
     pub a: [u32; 16],   // Address regs (A0..A15) — model as needed
     pub cfg: CpuConfig,
+    pub call_stack: Vec<u32>,
 }
 
 bitflags! {
@@ -66,6 +67,7 @@ impl Cpu {
             gpr: [0; 16],
             a: [0; 16],
             cfg,
+            call_stack: Vec::new(),
         }
     }
 

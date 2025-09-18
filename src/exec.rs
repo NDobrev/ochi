@@ -109,6 +109,165 @@ impl Executor for IntExecutor {
                 cpu.psw.set(Psw::Z, res == 0);
                 cpu.psw.set(Psw::N, (res as i32) < 0);
             }
+            Op::Shl => {
+                let a = cpu.gpr[d.rs1 as usize];
+                let amt = (if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm }) & 31;
+                let res = a.wrapping_shl(amt);
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::Shr => {
+                let a = cpu.gpr[d.rs1 as usize];
+                let amt = (if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm }) & 31;
+                let res = a.wrapping_shr(amt);
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::Sar => {
+                let a = cpu.gpr[d.rs1 as usize] as i32;
+                let amt = ((if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm }) & 31) as u32;
+                let res = (a >> (amt as i32)) as u32;
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::Ror => {
+                let a = cpu.gpr[d.rs1 as usize];
+                let amt = (if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm }) & 31;
+                let res = a.rotate_right(amt);
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::Andn => {
+                let a = cpu.gpr[d.rs1 as usize];
+                let b = if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm };
+                let res = a & !b;
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::Not => {
+                let a = cpu.gpr[d.rs1 as usize];
+                let res = !a;
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::Min => {
+                let a = cpu.gpr[d.rs1 as usize] as i32;
+                let b = if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm } as i32;
+                let res = if a <= b { a as u32 } else { b as u32 };
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::Max => {
+                let a = cpu.gpr[d.rs1 as usize] as i32;
+                let b = if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm } as i32;
+                let res = if a >= b { a as u32 } else { b as u32 };
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::MinU => {
+                let a = cpu.gpr[d.rs1 as usize];
+                let b = if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm };
+                let res = if a <= b { a } else { b };
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::MaxU => {
+                let a = cpu.gpr[d.rs1 as usize];
+                let b = if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm };
+                let res = if a >= b { a } else { b };
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::Mul => {
+                let a = cpu.gpr[d.rs1 as usize] as i32 as i64;
+                let b = (if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm }) as i32 as i64;
+                let res = (a.wrapping_mul(b)) as i32 as u32;
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::MulU => {
+                let a = cpu.gpr[d.rs1 as usize] as u64;
+                let b = (if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm }) as u64;
+                let res = a.wrapping_mul(b) as u32;
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::Div => {
+                let a = cpu.gpr[d.rs1 as usize] as i32;
+                let b = cpu.gpr[d.rs2 as usize] as i32;
+                let res = if b == 0 { 0 } else { a.wrapping_div(b) as u32 };
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::DivU => {
+                let a = cpu.gpr[d.rs1 as usize];
+                let b = cpu.gpr[d.rs2 as usize];
+                let res = if b == 0 { 0 } else { a / b };
+                cpu.gpr[d.rd as usize] = res;
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+            }
+            Op::BeqF => {
+                if cpu.psw.contains(Psw::Z) { cpu.pc = cpu.pc.wrapping_add(d.imm); }
+            }
+            Op::BneF => {
+                if !cpu.psw.contains(Psw::Z) { cpu.pc = cpu.pc.wrapping_add(d.imm); }
+            }
+            Op::BgeF => {
+                let n = cpu.psw.contains(Psw::N);
+                let v = cpu.psw.contains(Psw::V);
+                if n == v { cpu.pc = cpu.pc.wrapping_add(d.imm); }
+            }
+            Op::BltF => {
+                let n = cpu.psw.contains(Psw::N);
+                let v = cpu.psw.contains(Psw::V);
+                if n != v { cpu.pc = cpu.pc.wrapping_add(d.imm); }
+            }
+            Op::BgeUF => {
+                // C==1 means no borrow => a>=b
+                if cpu.psw.contains(Psw::C) { cpu.pc = cpu.pc.wrapping_add(d.imm); }
+            }
+            Op::BltUF => {
+                let c = cpu.psw.contains(Psw::C);
+                let z = cpu.psw.contains(Psw::Z);
+                if !c && !z { cpu.pc = cpu.pc.wrapping_add(d.imm); }
+            }
+            Op::Cmp | Op::CmpI => {
+                // Signed compare: set flags based on (rs1 - operand)
+                let a = cpu.gpr[d.rs1 as usize];
+                let b = if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm };
+                let (res, borrow) = a.overflowing_sub(b);
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+                // Carry clear on borrow; set C == !borrow
+                cpu.psw.set(Psw::C, !borrow);
+                let a_s = a as i32; let b_s = b as i32; let r_s = res as i32;
+                let overflow = ((a_s ^ r_s) & (a_s ^ b_s)) < 0;
+                cpu.psw.set(Psw::V, overflow);
+            }
+            Op::CmpU | Op::CmpUI => {
+                // Unsigned compare
+                let a = cpu.gpr[d.rs1 as usize];
+                let b = if d.rs2 != 0 { cpu.gpr[d.rs2 as usize] } else { d.imm };
+                let (res, borrow) = a.overflowing_sub(b);
+                cpu.psw.set(Psw::Z, res == 0);
+                cpu.psw.set(Psw::N, (res as i32) < 0);
+                cpu.psw.set(Psw::C, !borrow);
+                cpu.psw.set(Psw::V, false);
+            }
             Op::Sub => {
                 let a = cpu.gpr[d.rs1 as usize];
                 let (res, borrow) = if d.rs2 != 0 {
@@ -623,10 +782,32 @@ impl Executor for IntExecutor {
                 }
             }
             Op::Call | Op::CallA | Op::CallI => {
-                // Not implemented in this scaffold; treat as no-op for now
+                // Simple call stack model (no memory stack): push return PC, jump to target
+                match d.op {
+                    Op::Call => {
+                        let ft = cpu.pc; // already advanced PC
+                        let tgt = ft.wrapping_add(d.imm);
+                        cpu.call_stack.push(ft);
+                        cpu.pc = tgt;
+                    }
+                    Op::CallA => {
+                        let ft = cpu.pc;
+                        cpu.call_stack.push(ft);
+                        cpu.pc = d.imm;
+                    }
+                    Op::CallI => {
+                        let ft = cpu.pc;
+                        let tgt = cpu.a[d.rs1 as usize];
+                        cpu.call_stack.push(ft);
+                        cpu.pc = tgt;
+                    }
+                    _ => {}
+                }
             }
             Op::Ret => {
-                // Not implemented; treat as no-op
+                if let Some(ret) = cpu.call_stack.pop() {
+                    cpu.pc = ret;
+                }
             }
             Op::Syscall => return Err(Trap::Break),
         }

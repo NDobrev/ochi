@@ -27,11 +27,14 @@ struct AppState {
     visited: Vec<u32>,
     tab: Tab,
     selection: Option<u32>,
+    selected_addr: Option<u32>,
     label_edit: String,
     labels: std::collections::HashMap<u32, String>,
     search: String,
     logs: Vec<String>,
     analyze_started: Option<Instant>,
+    // Hex editing state: addr -> current edit buffer (2 hex chars)
+    hex_edits: std::collections::HashMap<u32, String>,
     // Settings
     show_settings: bool,
     theme: Theme,
@@ -44,6 +47,8 @@ struct AppState {
     show_br: bool,
     show_cbr: bool,
     show_call: bool,
+    // Labels persistence
+    labels_path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +78,19 @@ enum Msg {
     ToggleEdgeBr(bool),
     ToggleEdgeCbr(bool),
     ToggleEdgeCall(bool),
+    SaveLabels,
+    LabelsSaved(Result<(), String>),
+    LoadLabels,
+    LabelsLoaded(Result<std::collections::HashMap<u32,String>, String>),
+    SelectAddr(u32),
+    HexEditChanged(u32, String),
+    HexEditCommit(u32),
+    CopySelection,
+    PasteToSearch,
+    SaveDisasm,
+    DisasmSaved(Result<(), String>),
+    SaveImageBin,
+    ImageSaved(Result<(), String>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +143,7 @@ impl Application for App {
                 show_br: true,
                 show_cbr: true,
                 show_call: true,
+                labels_path: "labels.json".into(),
                 ..Default::default()
             }),
             Command::none(),
@@ -251,6 +270,151 @@ impl Application for App {
             Msg::ToggleEdgeBr(b) => { self.0.show_br = b; }
             Msg::ToggleEdgeCbr(b) => { self.0.show_cbr = b; }
             Msg::ToggleEdgeCall(b) => { self.0.show_call = b; }
+            Msg::SaveLabels => {
+                let path = self.0.labels_path.clone();
+                let map = self.0.labels.clone();
+                return Command::perform(async move {
+                    let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
+                        let s = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
+                        std::fs::write(&path, s).map_err(|e| e.to_string())?;
+                        Ok(())
+                    }).await.map_err(|e| e.to_string()).and_then(|r| r);
+                }, |_| Msg::LabelsSaved(Ok(())));
+            }
+            Msg::LabelsSaved(r) => {
+                match r { Ok(()) => { self.0.status = format!("Labels saved to {}", self.0.labels_path); }, Err(e) => { self.0.status = format!("Save error: {}", e); } }
+                self.push_log(self.0.status.clone());
+            }
+            Msg::LoadLabels => {
+                let path = self.0.labels_path.clone();
+                return Command::perform(async move {
+                    tokio::task::spawn_blocking(move || -> Result<std::collections::HashMap<u32,String>, String> {
+                        let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+                        let map: std::collections::HashMap<u32,String> = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+                        Ok(map)
+                    }).await.map_err(|e| e.to_string()).and_then(|r| r)
+                }, |r| Msg::LabelsLoaded(r));
+            }
+            Msg::LabelsLoaded(r) => {
+                match r {
+                    Ok(m) => { self.0.labels = m; self.0.status = format!("Labels loaded from {}", self.0.labels_path); }
+                    Err(e) => { self.0.status = format!("Load error: {}", e); }
+                }
+                self.push_log(self.0.status.clone());
+            }
+            Msg::SelectAddr(a) => { self.0.selected_addr = Some(a); }
+            Msg::HexEditChanged(addr, s) => {
+                // Keep only hex chars, limit to 2
+                let filtered: String = s.chars().filter(|c| c.is_ascii_hexdigit()).take(2).collect();
+                if filtered.is_empty() { self.0.hex_edits.remove(&addr); } else { self.0.hex_edits.insert(addr, filtered.clone()); }
+                self.0.selected_addr = Some(addr);
+                // Auto-commit when two hex digits entered
+                if filtered.len() == 2 {
+                    if let Some(img) = &mut self.0.image {
+                        for s in &mut img.segments {
+                            let start = s.base; let end = s.base + s.bytes.len() as u32;
+                            if addr >= start && addr < end {
+                                if let Ok(v) = u8::from_str_radix(&filtered, 16) {
+                                    s.bytes[(addr - start) as usize] = v;
+                                    self.0.status = format!("Wrote {:#04x} @ {:#010x}", v, addr);
+                                    self.push_log(self.0.status.clone());
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    self.0.hex_edits.remove(&addr);
+                    if let Some(img2) = self.0.image.clone() {
+                        let seeds = vec![img2.segments.first().map(|s| s.base).unwrap_or(0)];
+                        self.0.status = "Analyzing after hex edit…".into();
+                        self.0.analyze_started = Some(Instant::now());
+                        self.push_log(self.0.status.clone());
+                        return Command::perform(analyze_async(img2, seeds), |res| match res {
+                            Ok((v, e)) => Msg::AnalyzedOk(v, e),
+                            Err(e) => Msg::AnalyzedErr(e.to_string()),
+                        });
+                    }
+                }
+            }
+            Msg::HexEditCommit(addr) => {
+                if let Some(img) = &mut self.0.image {
+                    // Find segment containing addr
+                    for s in &mut img.segments {
+                        let start = s.base; let end = s.base + s.bytes.len() as u32;
+                        if addr >= start && addr < end {
+                            if let Some(buf) = self.0.hex_edits.get(&addr) {
+                                if let Ok(v) = u8::from_str_radix(buf, 16) {
+                                    s.bytes[(addr - start) as usize] = v;
+                                    self.0.status = format!("Wrote {:#04x} @ {:#010x}", v, addr);
+                                    self.push_log(self.0.status.clone());
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                // Clear the edit buffer after commit
+                self.0.hex_edits.remove(&addr);
+                // Re-run analysis so Code/Graph reflect new bytes
+                if let Some(img2) = self.0.image.clone() {
+                    let seeds = vec![img2.segments.first().map(|s| s.base).unwrap_or(0)];
+                    self.0.status = "Analyzing after hex edit…".into();
+                    self.0.analyze_started = Some(Instant::now());
+                    self.push_log(self.0.status.clone());
+                    return Command::perform(analyze_async(img2, seeds), |res| match res {
+                        Ok((v, e)) => Msg::AnalyzedOk(v, e),
+                        Err(e) => Msg::AnalyzedErr(e.to_string()),
+                    });
+                }
+            }
+            Msg::CopySelection => {
+                // Compose text from current tab selection
+                let text = match self.0.tab {
+                    Tab::Code => {
+                        if let (Some(img), Some(pc)) = (&self.0.image, self.0.selection) {
+                            let dec = Tc16Decoder::new();
+                            if let Some(raw32) = read_u32(img, pc) { if let Some(d) = dec.decode(raw32) { format!("{pc:#010x}: {}", fmt_decoded(&d)) } else { format!("{pc:#010x}") } } else { format!("{pc:#010x}") }
+                        } else { String::new() }
+                    }
+                    Tab::Hex | Tab::Disasm | Tab::Graph => {
+                        if let Some(addr) = self.0.selected_addr { if let Some(img) = &self.0.image { let b = read_u8(img, addr).unwrap_or(0); format!("{addr:#010x}: {:#04x}", b) } else { String::new() } } else { String::new() }
+                    }
+                };
+                if !text.is_empty() { self.0.status = format!("Copied: {}", text); }
+                self.push_log(self.0.status.clone());
+            }
+            Msg::PasteToSearch => {
+                // Without OS clipboard, reuse last status tail as a fallback paste stub
+                // In a real app, integrate iced clipboard write/read.
+                let t = self.0.status.clone();
+                if let Some(idx) = t.find(": ") { self.0.search = t[idx+2..].to_string(); }
+            }
+            Msg::SaveDisasm => {
+                if let Some(img) = &self.0.image {
+                    let dec = Tc16Decoder::new();
+                    let mut lines = Vec::new();
+                    for &pc in &self.0.visited {
+                        if let Some(raw32) = read_u32(img, pc) { if let Some(d) = dec.decode(raw32) { lines.push(format!("{pc:#010x}: {}", fmt_decoded(&d))); } }
+                    }
+                    let out = lines.join("\n");
+                    return Command::perform(async move {
+                        tokio::task::spawn_blocking(move || std::fs::write("disasm.txt", out)).await.map_err(|e| e.to_string()).and_then(|r| r.map_err(|e| e.to_string()))
+                    }, |r| match r { Ok(()) => Msg::DisasmSaved(Ok(())), Err(e) => Msg::DisasmSaved(Err(e)) });
+                }
+            }
+            Msg::DisasmSaved(r) => {
+                match r { Ok(()) => self.0.status = "Saved disasm.txt".into(), Err(e) => self.0.status = format!("Save failed: {}", e) }
+                self.push_log(self.0.status.clone());
+            }
+            Msg::SaveImageBin => {
+                if let Some(img) = &self.0.image {
+                    let data: Vec<u8> = if let Some(seg) = img.segments.first() { seg.bytes.clone() } else { Vec::new() };
+                    return Command::perform(async move {
+                        tokio::task::spawn_blocking(move || std::fs::write("image.bin", data)).await.map_err(|e| e.to_string()).and_then(|r| r.map_err(|e| e.to_string()))
+                    }, |r| match r { Ok(()) => Msg::ImageSaved(Ok(())), Err(e) => Msg::ImageSaved(Err(e)) });
+                }
+            }
+            Msg::ImageSaved(r) => { match r { Ok(()) => self.0.status = "Saved image.bin".into(), Err(e) => self.0.status = format!("Save failed: {}", e) } self.push_log(self.0.status.clone()); }
         }
         Command::none()
     }
@@ -273,6 +437,12 @@ impl Application for App {
             text("Search:"),
             text_input("text | 0xADDR | label", &self.0.search).on_input(Msg::SearchChanged).width(Length::Fixed(240.0)),
             button("Go").on_press(Msg::SearchGo),
+            vertical_rule(1),
+            button("Copy").on_press(Msg::CopySelection),
+            button("Paste").on_press(Msg::PasteToSearch),
+            vertical_rule(1),
+            button("Save Disasm").on_press(Msg::SaveDisasm),
+            button("Save Bin").on_press(Msg::SaveImageBin),
             vertical_rule(1),
             button(text(if self.0.show_settings { "Close Settings" } else { "Settings" })).on_press(Msg::ToggleSettings),
         ].spacing(10).align_items(iced::Alignment::Center);
@@ -307,7 +477,7 @@ impl Application for App {
 
         let status = container(text(&self.0.status)).width(Length::Fill);
 
-        // Sidebar: segments + basic visited list (first 100)
+        // Sidebar: segments + basic visited list (first 100) + labels
         let mut sidebar = column![text("Segments").size(self.0.font_size).style(theme::Text::Color([0.7,0.8,1.0].into()))].spacing(5);
         if let Some(img) = &self.0.image {
             for s in &img.segments {
@@ -323,7 +493,21 @@ impl Application for App {
         for &pc in self.0.visited.iter().take(100) {
             viscol = viscol.push(text(format!("{pc:#010x}")).size(self.0.font_size.saturating_sub(2)));
         }
-        sidebar = sidebar.push(scrollable(viscol).height(Length::Fill));
+        sidebar = sidebar.push(scrollable(viscol).height(Length::Fixed(160.0)));
+        sidebar = sidebar.push(horizontal_rule(10));
+        // Labels quick list and save/load
+        let mut lblhdr = row![text("Labels").size(self.0.font_size)];
+        lblhdr = lblhdr.push(button("Save").on_press(Msg::SaveLabels));
+        lblhdr = lblhdr.push(button("Load").on_press(Msg::LoadLabels));
+        sidebar = sidebar.push(lblhdr.spacing(6));
+        let mut lblcol = column![];
+        let mut items: Vec<_> = self.0.labels.iter().map(|(pc,name)| (*pc, name.clone())).collect();
+        items.sort_by(|a,b| a.1.cmp(&b.1));
+        for (pc, name) in items.into_iter().take(200) {
+            let line = format!("{} @ {:#010x}", name, pc);
+            lblcol = lblcol.push(button(text(line).size(self.0.font_size.saturating_sub(2))).on_press(Msg::SelectPc(pc)));
+        }
+        sidebar = sidebar.push(scrollable(lblcol).height(Length::Fill));
 
         // Code list (simple): decode visited PCs on demand, filter via search
         let mut col: iced::widget::Column<Msg> = column![];
@@ -451,12 +635,40 @@ impl Application for App {
                         let mut addr = seg.base;
                         let end = seg.base + seg.bytes.len() as u32;
                         while addr < end.min(seg.base + 1024) { // show up to 1KB
-                            let mut b = String::new();
-                            for i in 0..16 { let a = addr + i; if a < end { b.push_str(&format!("{:02x} ", seg.bytes[(a - seg.base) as usize])); } }
-                            let is_sel = if let Some(sel) = self.0.selection { sel >= addr && sel < addr + 16 } else { false };
-                            let mut t = text(format!("{addr:#010x}: {}{}", if is_sel { "> " } else { "" }, b)).size(self.0.font_size.saturating_sub(2));
-                            if is_sel { t = t.style(theme::Text::Color(Color::from_rgb(1.0, 1.0, 0.4))); }
-                            lines = lines.push(button(t).on_press(Msg::SelectPc(addr)));
+                            // Address column
+                            let mut roww = row![text(format!("{addr:#010x}: ")).size(self.0.font_size.saturating_sub(2))].spacing(6);
+
+                            // ASCII panel (clickable per-byte)
+                            let mut ascii_row = row![];
+                            for i in 0..16 {
+                                let a = addr + i;
+                                if a >= end { break; }
+                                let val = seg.bytes[(a - seg.base) as usize];
+                                let ch = if (0x20..=0x7e).contains(&val) { val as char } else { '.' };
+                                let is_sel_b = self.0.selected_addr == Some(a);
+                                let mut t = text(format!("{}", ch)).size(self.0.font_size.saturating_sub(2));
+                                if is_sel_b { t = t.style(theme::Text::Color(Color::from_rgb(1.0, 1.0, 0.4))); }
+                                ascii_row = ascii_row.push(button(t).on_press(Msg::SelectAddr(a)).padding(2));
+                            }
+
+                            // Bytes as individual editors (text_input per byte)
+                            let mut byte_row = row![];
+                            for i in 0..16 {
+                                let a = addr + i;
+                                if a >= end { break; }
+                                let val = seg.bytes[(a - seg.base) as usize];
+                                let is_sel_b = self.0.selected_addr == Some(a);
+                                let displayed = self.0.hex_edits.get(&a).cloned().unwrap_or_else(|| format!("{:02x}", val));
+                                let input = text_input("00", &displayed)
+                                    .on_input(move |s| Msg::HexEditChanged(a, s))
+                                    .on_submit(Msg::HexEditCommit(a))
+                                    .width(Length::Fixed(32.0))
+                                    .size(self.0.font_size.saturating_sub(2));
+                                byte_row = byte_row.push(input);
+                            }
+                            // Compose: [ADDR] [ASCII] | [HEX]
+                            roww = roww.push(ascii_row).push(vertical_rule(1)).push(byte_row);
+                            lines = lines.push(roww);
                             addr += 16;
                         }
                     }
@@ -577,18 +789,24 @@ impl GraphCanvas {
     }
 }
 
+struct GraphState { offset: (f32,f32), scale: f32, dragging: Option<Point> }
+
+impl Default for GraphState { fn default() -> Self { Self { offset: (40.0, 40.0), scale: 1.0, dragging: None } } }
+
 impl Program<Msg> for GraphCanvas {
-    type State = ();
+    type State = GraphState;
 
     fn draw(
         &self,
-        _state: &Self::State,
+        state: &Self::State,
         renderer: &iced::Renderer,
         _theme: &Theme,
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<<iced::Renderer as CanvasRenderer>::Geometry> {
         let mut frame = Frame::new(renderer, Size::new(bounds.width, bounds.height));
+        let (ox, oy) = state.offset;
+        let sc = state.scale;
 
         use std::collections::HashMap;
 
@@ -661,8 +879,10 @@ impl Program<Msg> for GraphCanvas {
                 EdgeKind::Call => self.show_call,
             };
             if !show { continue; }
-            let p0 = pos.get(&e.from).copied().unwrap_or(Point::new(bounds.width/2.0, bounds.height/2.0));
-            let p1 = pos.get(&e.to).copied().unwrap_or(Point::new(bounds.width/2.0, bounds.height/2.0));
+            let p0w = pos.get(&e.from).copied().unwrap_or(Point::new(bounds.width/2.0, bounds.height/2.0));
+            let p1w = pos.get(&e.to).copied().unwrap_or(Point::new(bounds.width/2.0, bounds.height/2.0));
+            let p0 = Point::new(p0w.x * sc + ox, p0w.y * sc + oy);
+            let p1 = Point::new(p1w.x * sc + ox, p1w.y * sc + oy);
             let color = match e.kind {
                 EdgeKind::Fallthrough => Color::from_rgb(0.6,0.6,0.6),
                 EdgeKind::Branch => Color::from_rgb(0.9,0.7,0.2),
@@ -679,8 +899,8 @@ impl Program<Msg> for GraphCanvas {
             if len > 0.0001 {
                 let ux = dx / len;
                 let uy = dy / len;
-                let arrow_len = 10.0_f32;
-                let wing = 5.0_f32;
+            let arrow_len = 10.0_f32 * sc.max(0.5);
+            let wing = 5.0_f32 * sc.max(0.5);
                 let backx = p1.x - ux * arrow_len;
                 let backy = p1.y - uy * arrow_len;
                 // perpendicular (left) is (-uy, ux)
@@ -694,7 +914,8 @@ impl Program<Msg> for GraphCanvas {
 
         // Draw nodes + captions
         for &pc in &self.nodes {
-            let p = pos.get(&pc).copied().unwrap_or(Point::new(bounds.width/2.0, bounds.height/2.0));
+            let pw = pos.get(&pc).copied().unwrap_or(Point::new(bounds.width/2.0, bounds.height/2.0));
+            let p = Point::new(pw.x * sc + ox, pw.y * sc + oy);
             let circle = CanvasPath::circle(p, 6.0);
             let stroke = Stroke {
                 width: if Some(pc) == self.selection { 3.0 } else { 1.5 },
@@ -710,7 +931,7 @@ impl Program<Msg> for GraphCanvas {
                 content: caption,
                 position: Point::new(p.x, p.y + (6.0 + 4.0)),
                 color,
-                size: (self.font_px.max(10.0) - 2.0),
+                size: (self.font_px.max(10.0) - 2.0) * sc.clamp(0.6, 1.5),
                 ..Default::default()
             };
             text.horizontal_alignment = iced::alignment::Horizontal::Center;
@@ -720,12 +941,17 @@ impl Program<Msg> for GraphCanvas {
         vec![frame.into_geometry()]
     }
 
-    fn update(&self, _state: &mut Self::State, event: canvas::Event, bounds: Rectangle, cursor: mouse::Cursor) -> (canvas::event::Status, Option<Msg>) {
+    fn update(&self, state: &mut Self::State, event: canvas::Event, bounds: Rectangle, cursor: mouse::Cursor) -> (canvas::event::Status, Option<Msg>) {
         use canvas::event::Status;
         match event {
             canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(pos) = cursor.position_in(bounds) {
-                    // Hit-test nodes
+                    // Hit-test nodes (apply inverse transform)
+                    let (ox, oy) = state.offset;
+                    let sc = state.scale;
+                    let inv = |p: Point| Point::new((p.x - ox)/sc, (p.y - oy)/sc);
+                    state.dragging = Some(pos);
+                    let posw = inv(pos);
                     let mut best: Option<(f32, u32)> = None;
                     for &pc in &self.nodes {
                         let p = self.node_pos(pc, bounds);
@@ -739,6 +965,24 @@ impl Program<Msg> for GraphCanvas {
                     if let Some((_, pc)) = best { return (Status::Captured, Some(Msg::SelectPc(pc))); }
                 }
                 (Status::Ignored, None)
+            }
+            canvas::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => { state.dragging = None; (Status::Captured, None) }
+            canvas::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                if let Some(prev) = state.dragging.take() {
+                    let dx = position.x - prev.x;
+                    let dy = position.y - prev.y;
+                    state.offset.0 += dx;
+                    state.offset.1 += dy;
+                    state.dragging = Some(position);
+                    return (Status::Captured, None);
+                }
+                (Status::Ignored, None)
+            }
+            canvas::Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
+                let z = match delta { mouse::ScrollDelta::Lines { y, .. } => y, mouse::ScrollDelta::Pixels { y, .. } => y / 40.0 };
+                let factor = if z > 0.0 { 1.1 } else { 0.9 };
+                state.scale = (state.scale * factor).clamp(0.5, 4.0);
+                (Status::Captured, None)
             }
             _ => (canvas::event::Status::Ignored, None),
         }
